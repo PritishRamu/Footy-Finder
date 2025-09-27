@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login - Footy Finder</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+  <link rel="icon" href="{{ url_for('static', filename='goal.png') }}" type="image/png">
+
+</head>
+<body>
+  <div class="auth-container">
+    <form class="auth-form" method="POST">
+      <img src="{{ url_for('static', filename='images/shot.png') }}" alt="Footy Finder" class="auth-logo">
+      <h2><i class="fas fa-futbol"></i>Login</h2>
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          {% for category, message in messages %}
+            <div class="alert alert-{{ category }}">
+              {{ message }}
+            </div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+
+      <input type="text" name="username" placeholder="Username" required>
+      <input type="password" name="password" placeholder="Password" required>
+      <input type="submit" value="Login">
+      {% if error %}
+        <p class="error-message">{{ error }}</p>
+      {% endif %}
+      <div class="forgot-password">
+        Don't have an account? <a href="/register">Register here</a>
+      </div>
+      <div class="forgot-password">
+          <a href="{{ url_for('request_password_reset') }}">Forgot your Password?</a>
+      </div>
+    </form>
+  </div>
+</body>
+</html>

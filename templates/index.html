@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Home - Footy Finder</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <script src="https://maps.googleapis.com/maps/api/js?key={{ api_key }}&callback=initMap&libraries=&v=weekly" defer></script>
+  <link rel="icon" href="{{ url_for('static', filename='goal.png') }}" type="image/png">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/animations.css') }}">
+
+</head>
+<body>
+  <header class="main-header">
+      <nav class="main-nav">
+          <a href="/home" class="nav-logo">📍⚽️ Footy Finder</a>
+          <div class="nav-links">
+              <a href="/home">Home</a>
+              <a href="/logout">Logout</a>
+          </div>
+      </nav>
+      <div class="search-container">
+          <input type="text" id="location-input" placeholder="Enter a location, postcode, or coordinates...">
+          <select id="ratingFilter">
+              <option value="">⭐ Rating</option>
+              <option value="4">4.0+</option>
+              <option value="3">3.0+</option>
+          </select>
+          <select id="distanceFilter">
+              <option value="">📍 Distance</option>
+              <option value="5000">Within 5km</option>
+              <option value="10000">Within 10km</option>
+              <option value="25000">Within 25km</option>
+          </select>
+          <button id="search-btn" class="header-btn search-btn">Search</button>
+          <button id="favourites-btn" onclick="showFavourites()" class="header-btn favourites-btn">⭐ My Favourites</button>
+      </div>
+  </header>
+  <main>
+    <div id="map-wrapper" style="position: relative; margin-top: 20px;">
+      <div id="map" class="map-container"></div>
+      
+        <div id="loading-spinner" class="loading-spinner" style="display: none;">
+          <div class="football-spinner"></div>
+          <p>⚽ Finding the best football clubs near you...</p>
+        </div>
+      </div>
+    
+      <div id="clubCards" class="club-cards"></div>
+    </main>
+    
+  </div>
+
+
+  <div id="reviewsModal" class="modal">
+    <div class="modal-content">
+      <span class="close" onclick="closeReviewModal()">×</span>
+      <h3 id="reviewClubName">Reviews</h3>
+      
+      <div id="reviewsList"></div>
+  
+      <hr>
+      <h4>Leave a Review</h4>
+      <textarea id="reviewText" placeholder="Write your review here..." rows="4" style="width:100%"></textarea>
+      <br><br>
+      <label>Rating:
+        <select id="reviewRating">
+          <option value="1">1 ⭐</option>
+          <option value="2">2 ⭐⭐</option>
+          <option value="3">3 ⭐⭐⭐</option>
+          <option value="4">4 ⭐⭐⭐⭐</option>
+          <option value="5">5 ⭐⭐⭐⭐⭐</option>
+        </select>
+      </label>
+      <br><br>
+      <button onclick="submitReview()">Submit Review</button>
+    </div>
+  </div>
+
+  <script>
+    let map;
+    let markers = [];
+    let userLocation = null;
+    let userSearchCoords=null;
+
+    function initMap() {
+      const london = { lat: 51.5074, lng: -0.1278 };  // Default London if location not found
+      map = new google.maps.Map(document.getElementById("map"), {
+        center: london,
+        zoom: 10,
+      });
+
+      document.getElementById("search-btn").addEventListener("click", function() {
+        const locationInput = document.getElementById("location-input").value.trim();
+        if (locationInput){
+            getNearbyClubs(locationInput);
+        }
+        else{
+            alert("Please enter a location or coordinates");
+        }
+        
+      });
+    }
+function getNearbyClubs(locationInput) {
+    // Show the spinner and hide the map/cards
+    document.getElementById("loading-spinner").style.display = "flex";
+    document.getElementById("map").style.display = "none";
+    document.getElementById("clubCards").style.display = "none";
+
+    const dmsRegex = /(\d+)[°:\s](\d+)[\'′:\s](\d+(?:\.\d+)?)[\"\″]?\s*([NS])?\s+(\d+)[°:\s](\d+)[\'′:\s](\d+(?:\.\d+)?)[\"\″]?\s*([EW])?/i;
+    const decimalRegex = /^-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?$/;
+
+    let bodyPayload = {};
+
+    if (dmsRegex.test(locationInput)) {
+        const match = locationInput.match(dmsRegex);
+        const [, latDeg, latMin, latSec, latDir, lngDeg, lngMin, lngSec, lngDir] = match;
+        const lat = convertDMSToDecimal(latDeg, latMin, latSec, latDir);
+        const lng = convertDMSToDecimal(lngDeg, lngMin, lngSec, lngDir);
+        userSearchCoords = {lat, lng};
+        bodyPayload = { lat, lng };
+    } else if (decimalRegex.test(locationInput)) {
+        const [latStr, lngStr] = locationInput.split(',');
+        const lat = parseFloat(latStr.trim());
+        const lng = parseFloat(lngStr.trim());
+        userSearchCoords = {lat, lng};
+        bodyPayload = { lat, lng };
+    } else {
+        bodyPayload = { location: locationInput };
+    }
+
+    Promise.all([
+        fetch('/get_clubs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(bodyPayload)
+        }).then(res => res.json()),
+        fetch('/get_favorites').then(res => res.json())
+    ])
+    .then(([clubData, favoriteData]) => {
+        // Hide the spinner and show the map/cards containers
+        document.getElementById("loading-spinner").style.display = "none";
+        document.getElementById("map").style.display = "block";
+        document.getElementById("clubCards").style.display = "flex";
+
+        if (clubData.error || favoriteData.error) {
+            console.error("Server error:", clubData.error || favoriteData.error);
+            alert(clubData.error || favoriteData.error);
+            return;
+        }
+
+        const clubs = clubData.clubs;
+        const favoritePlaceIds = new Set(favoriteData.clubs?.map(fav => fav.place_id));
+
+        if (!clubs || !Array.isArray(clubs)) {
+            console.error("Invalid clubs data:", clubData);
+            return;
+        }
+
+        clearMarkers();
+        document.getElementById("clubCards").innerHTML = "";
+
+        map.setCenter({ lat: clubData.lat, lng: clubData.lng });
+        map.setZoom(12);
+
+        clubs.forEach(club => {
+            const isFavorite = favoritePlaceIds.has(club.place_id);
+
+            const marker = new google.maps.Marker({
+                position: {
+                    lat: club.location.lat,
+                    lng: club.location.lng
+                },
+                map: map,
+                title: club.name
+            });
+            markers.push(marker);
+
+            const card = document.createElement("div");
+            card.className = "club-card";
+
+            card.innerHTML = `
+                <h3>${club.name}</h3>
+                <p><strong>📍 Address:</strong> ${club.address}</p>
+                <p><strong>⭐ Rating:</strong> ${club.rating || 'N/A'}</p>
+                <p><strong>📞 Phone:</strong> ${club.phone || 'Not available'}</p>
+                <p><strong>🌐 Website:</strong> 
+                    <a href="${club.website}" target="_blank">${club.website || 'No website'}</a>
+                </p>
+            `;
+
+            if (club.next_match && club.next_match.opponent_logo) {
+                card.innerHTML += `
+                    <div class="next-match-info">
+                        <h4>Next Match ${club.next_match.status}</h4>
+                        <div class="match-details">
+                            <img src="${club.next_match.opponent_logo}/preview" alt="${club.next_match.opponent} logo" class="opponent-logo">
+                            <div class="match-text">
+                                <p><strong>vs ${club.next_match.opponent}</strong></p>
+                                <p>${club.next_match.competition}</p>
+                                <p>${club.next_match.time}</p>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            card.innerHTML += `
+                <div class="card-buttons">
+                    <button class="fav-btn"
+                            onclick="toggleFavourite(event, this)"
+                            data-club='${JSON.stringify(club)}'>
+                        ${isFavorite ? '💔 Remove from Favourites' : '⭐ Add to Favourites'}
+                    </button>
+                    <button class="see-reviews-btn"
+                            onclick='openReviewModal(${JSON.stringify(club)})'>
+                        💬 See Reviews
+                    </button>
+                </div>
+                <div class="review-section">
+                    <textarea placeholder="Leave a review..." class="review-text"></textarea><br>
+                    <label>Rating:
+                        <select class="review-rating">
+                            <option value="">--</option>
+                            <option value="1">1 ⭐</option>
+                            <option value="2">2 ⭐</option>
+                            <option value="3">3 ⭐</option>
+                            <option value="4">4 ⭐</option>
+                            <option value="5">5 ⭐</option>
+                        </select>
+                    </label>
+                    <button class="submit-review-btn" onclick="submitReview(this)" data-place-id="${club.place_id}">
+                        📝 Submit Review
+                    </button>
+                </div>
+            `;
+            
+            const directionLink = document.createElement("a");
+            directionLink.href = userSearchCoords
+            ? `http://www.google.com/maps/dir/?api=1&origin=${userSearchCoords.lat},${userSearchCoords.lng}&destination=${club.location.lat},${club.location.lng}`
+            : `http://www.google.com/maps/dir/?api=1&destination=${club.location.lat},${club.location.lng}`;
+            directionLink.target = "_blank";
+            directionLink.className = "directions-btn";
+            directionLink.innerText = "🧭 Get Directions";
+            card.appendChild(directionLink);
+
+            document.getElementById("clubCards").appendChild(card);
+        });
+    })
+    .catch(error => {
+        // Hide the spinner on error as well
+        document.getElementById("loading-spinner").style.display = "none";
+        document.getElementById("map").style.display = "block";
+        
+        console.error("Failed to load clubs or favorites:", error);
+        alert("An error occurred while searching for clubs. Please try again.");
+    });
+}
+
+
+function convertDMSToDecimal(degrees, minutes, seconds, direction) {
+    let dd = parseFloat(degrees) + parseFloat(minutes) / 60 + parseFloat(seconds) / 3600;
+    if (direction === 'S' || direction === 'W') {
+        dd *= -1;
+    }
+    return dd;
+}
+function toggleFavourite(event, button) {
+    event.preventDefault();
+
+    const club = JSON.parse(button.getAttribute("data-club"));
+    const isRemoving = button.innerText.includes("Remove");
+
+    const url = isRemoving ? "/remove_favorite" : "/add_favorite";
+    const method = "POST";
+
+    const payload = {
+        place_id: club.place_id,
+        club_name: club.name,
+        address: club.address,
+        rating: club.rating || null,
+        phone: club.phone || null,
+        website: club.website || null,
+        lat: club.location.lat,
+        lng: club.location.lng
+    };
+
+    console.log("Payload being sent:", payload);  // Log the payload to see what's being sent
+
+    fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({club: payload})
+    })
+    .then(response => {
+        if (!response.ok) throw new Error("Invalid data");
+        return response.json();
+    })
+    .then(data => {
+        // Update button text
+        button.innerText = isRemoving ? "⭐ Add to Favourites" : "💔 Remove from Favourites";
+        
+        if (isRemoving) {
+            // Remove the club card from the DOM
+            button.closest(".club-card").remove(); // Find the parent club card and remove it
+        } else {
+            // Show alert when the club is added to favourites
+            alert(`${club.name} has been added to your favourites!`);
+        }
+    })
+    .catch(error => {
+        console.error("Failed to update favourite:", error.message);
+    });
+}
+
+
+
+    function clearMarkers() {
+      markers.forEach(marker => marker.setMap(null));
+      markers = [];
+    }
+
+    function showFavourites() {
+    fetch('/get_favorites')
+        .then(res => res.json())
+        .then(data => {
+            clearMarkers();
+            const clubCardsContainer = document.getElementById("clubCards");
+            clubCardsContainer.innerHTML = "";
+
+            if (data.clubs && data.clubs.length > 0) {
+                data.clubs.forEach(club => {
+                    const marker = new google.maps.Marker({
+                        position: { lat: club.location.lat, lng: club.location.lng },
+                        map,
+                        title: club.name
+                    });
+                    markers.push(marker);
+
+                    const card = document.createElement("div");
+                    card.className = "club-card";
+                    card.innerHTML = `
+                        <h3>${club.name}</h3>
+                        <p><strong>📍 Address:</strong> ${club.address}</p>
+                        <p><strong>⭐ Rating:</strong> ${club.rating || 'N/A'}</p>
+                        <p><strong>📞 Phone:</strong> ${club.phone}</p>
+                        <p><strong>🌐 Website:</strong> <a href="${club.website}" target="_blank">${club.website}</a></p>
+                        <button class="fav-btn"
+                                onclick="toggleFavourite(event, this)"
+                                data-club='${JSON.stringify(club)}'>
+                                💔 Remove from Favourites
+                        </button>
+                        <button class="see-reviews-btn" onclick='openReviewModal(${JSON.stringify(club)})'>💬 See Reviews</button>
+                        
+                    `;
+
+                    const directionLink = document.createElement("a");
+                    directionLink.href = userSearchCoords
+                    ? `http://www.google.com/maps/dir/?api=1&origin=${userSearchCoords.lat},${userSearchCoords.lng}&destination=${club.location.lat},${club.location.lng}`
+                    : `http://www.google.com/maps/dir/?api=1&destination=${club.location.lat},${club.location.lng}`;
+                    directionLink.target = "_blank";
+                    directionLink.className = "directions-btn";
+                    directionLink.innerText = "🧭 Get Directions";
+                    card.appendChild(directionLink);
+
+
+                    clubCardsContainer.appendChild(card);
+                });
+            } else {
+                clubCardsContainer.innerHTML = `
+                    <div class="no-favourites-msg">
+                        <p>🧐 You haven’t added any clubs to your favourites yet.</p>
+                        <p>Start exploring and hit <strong>“⭐ Add to Favourites”</strong> on clubs you love!</p>
+                        <button class="start-search-btn" onclick="document.getElementById('location-input').focus()">
+                            🔍 Start Searching
+                        </button>
+                    </div>
+                `;
+            }
+        })
+        .catch(err => {
+            console.error("Failed to load favourites:", err);
+        });
+}
+
+
+
+    document.getElementById("search-btn").addEventListener("click", function () {
+    const locationInput = document.getElementById("location-input").value.trim();
+    
+    // Log the input to verify
+    console.log("Location input:", locationInput);
+    
+    if (locationInput) {
+        getNearbyClubs(locationInput);
+    } else {
+        alert("Please enter a location or coordinates.");
+    }
+});
+
+
+
+function submitReview(button) {
+    const card = button.closest(".club-card");
+    if (!card) {
+        console.error("Club card not found");
+        alert("Unexpected error. Please try again.");
+        return;
+    }
+
+    const commentInput = card.querySelector(".review-text");
+    const ratingInput = card.querySelector(".review-rating");
+
+    if (!commentInput || !ratingInput) {
+        console.error("Review input elements not found");
+        alert("Review inputs missing. Please refresh and try again.");
+        return;
+    }
+
+    const comment = commentInput.value.trim();
+    const rating = ratingInput.value;
+    const place_id = button.dataset.placeId;
+
+    console.log("Submitting review for:", place_id);
+    console.log("Rating:", rating, "| Comment:", comment);
+
+    if (!rating || !comment) {
+        alert("Please enter both a rating and a comment.");
+        return;
+    }
+
+    fetch('/submit_review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            place_id: place_id,
+            rating: parseInt(rating),
+            comment: comment
+        })
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.error) {
+            alert("Failed to submit review: " + data.error);
+        } else {
+            alert(data.message || "Review submitted!");
+            commentInput.value = "";
+            ratingInput.value = "";
+        }
+    })
+    .catch(err => {
+        console.error("Review submit error:", err);
+        alert("Failed to submit review.");
+    });
+}
+
+
+let currentPlaceId = null;
+
+let currentClub = null;
+function openReviewModal(club) {
+    document.getElementById("reviewClubName").innerText = `${club.name} - Reviews`;
+    const reviewList = document.getElementById("reviewList");
+    reviewList.innerHTML = "<p>Loading...</p>";
+
+    fetch(`/get_reviews/${club.place_id}`)
+        .then(res => res.json())
+        .then(data => {
+            reviewList.innerHTML = "";
+
+            if (data.reviews && data.reviews.length > 0) {
+                data.reviews.forEach(review => {
+                    const username = review.username || 'Anonymous';
+                    const rating = review.rating ? `${'⭐'.repeat(review.rating)} (${review.rating})` : 'No rating';
+                    const reviewText = review.review || 'No review provided.';
+                    const timestamp = review.timestamp || '';
+
+                    const div = document.createElement("div");
+                    div.className = "review-entry";
+                    div.innerHTML = `
+                        <div class="username"><strong>${username}</strong></div>
+                        <div class="rating">Rating: ${rating}</div>
+                        <div class="review-text">${reviewText}</div>
+                        <div class="timestamp"><small>${timestamp}</small></div>
+                        <hr>
+                    `;
+                    reviewList.appendChild(div);
+                });
+            } else {
+                reviewList.innerHTML = "<p>No reviews yet.</p>";
+            }
+        })
+        .catch(err => {
+            reviewList.innerHTML = "<p>Error loading reviews.</p>";
+            console.error("Error fetching reviews:", err);
+        });
+
+    document.getElementById("reviewModal").style.display = "block";
+}
+
+
+function closeReviewModal() {
+    document.getElementById("reviewModal").style.display = "none";
+}
+
+
+
+
+
+
+
+window.onclick = function(event) {
+    const modal = document.getElementById("reviewModal");
+    if (event.target === modal) {
+        modal.style.display = "none";
+    }
+}
+
+function getDirections(lat, lng) {
+  const url = `http://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+  window.open(url, "_blank");
+}
+
+
+
+
+function searchClubs() {
+    const locationInput = document.getElementById("location-input").value.trim();
+    const ratingFilter = document.getElementById("ratingFilter").value;
+    const distanceFilter = document.getElementById("distanceFilter").value;
+
+    const payload = {
+        query: locationInput,
+        rating: ratingFilter ? parseFloat(ratingFilter) : null,
+        distance: distanceFilter ? parseInt(distanceFilter) : null
+    };
+
+    console.log("Search filters:", payload);
+
+    // ✅ Show spinner and hide results
+    document.getElementById("loading-spinner").style.display = "flex";
+    document.getElementById("map").style.display = "none";
+    document.getElementById("clubCards").style.display = "none";
+
+    fetch('/search_clubs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.clubs) {
+            if (data.user_location) {
+                userSearchCoords = data.user_location;
+                console.log("Saved user's searched location:", userSearchCoords);
+            }
+
+            // ✅ First render cards and defer spinner hiding
+            requestAnimationFrame(() => {
+                updateMapAndCards(data.clubs);
+
+                // ✅ Hide spinner after next repaint to ensure UI is ready
+                setTimeout(() => {
+                    document.getElementById("loading-spinner").style.display = "none";
+                }, 50);
+            });
+        } else {
+            document.getElementById("loading-spinner").style.display = "none";
+            alert(data.error || "No clubs found.");
+        }
+    })
+    .catch(err => {
+        document.getElementById("loading-spinner").style.display = "none";
+        document.getElementById("map").style.display = "block";
+        console.error("Search failed:", err);
+        alert("Something went wrong while searching.");
+    });
+}
+
+
+
+
+
+
+let mapMarkers = [];
+
+function updateMapAndCards(clubs) {
+    const clubCardsContainer = document.getElementById("clubCards");
+    clubCardsContainer.innerHTML = "";
+
+    // Build and show all club cards
+    clubs.forEach(club => {
+        const card = document.createElement("div");
+        card.className = "club-card";
+
+        card.innerHTML = `
+            <h3>${club.name}</h3>
+            <p><i class="fas fa-map-marker-alt"></i> ${club.address}</p>
+            <p><i class="fas fa-star"></i> ${club.rating || 'N/A'}</p>
+            <p><i class="fas fa-phone"></i> ${club.phone || 'Not available'}</p>
+            <p><i class="fas fa-globe"></i> <a href="${club.website}" target="_blank">${club.website || ''}</a></p>
+            <button onclick="addToFavourites('${club.place_id}', '${club.name.replace(/'/g, "\\'")}', '${club.address.replace(/'/g, "\\'")}', '${club.rating}', '${club.phone}', '${club.website}', '${club.lat}', '${club.lng}')">❤️ Add to Favourites</button>
+        `;
+
+        clubCardsContainer.appendChild(card);
+    });
+
+    // ✅ Display the club cards *first*
+    clubCardsContainer.style.display = "flex";
+
+    // ✅ Now render map and markers with a small async delay
+    requestAnimationFrame(() => {
+        setTimeout(() => {
+            renderMapAndMarkers(clubs);
+        }, 50); // slight delay ensures DOM updates first
+    });
+}
+
+function renderMapAndMarkers(clubs) {
+    // Show the map
+    document.getElementById("map").style.display = "block";
+
+    // Clear old markers
+    mapMarkers.forEach(marker => marker.setMap(null));
+    mapMarkers = [];
+
+    // Add new markers
+    clubs.forEach(club => {
+        const marker = new google.maps.Marker({
+            position: { lat: club.lat, lng: club.lng },
+            map: map,
+            title: club.name
+        });
+        mapMarkers.push(marker);
+    });
+
+    // Optionally center the map to the first result
+    if (clubs.length > 0) {
+        map.setCenter({ lat: clubs[0].lat, lng: clubs[0].lng });
+        map.setZoom(12);
+    }
+}
+
+  function initAutocomplete() {
+    const input = document.getElementById("location-input");
+    const options = {
+      types: ["(cities)"], // restrict to cities only
+      componentRestrictions: { country: "gb" }, // restrict to UK if desired
+    };
+    new google.maps.places.Autocomplete(input, options);
+  }
+
+  google.maps.event.addDomListener(window, "load", initAutocomplete);
+
+
+  document.getElementById("location-input").addEventListener("focus", function () {
+  this.value = "";
+});
+
+
+
+
+
+
+
+  </script>
+
+<div id="reviewModal" class="modal">
+  <div class="modal-content">
+    <span class="close" onclick="closeReviewModal()">×</span>
+    <h2 id="modalClubName">Reviews</h2>
+    <div id="reviewList"></div>
+  </div>
+</div>
+
+  
+</body>
+</html>

@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>My Dashboard - Footy Finder</title>
+</head>
+<body>
+    <div class="container">
+        <h1>My Favorite Clubs</h1>
+        
+        {% if favorites %}
+            <div class="results-container">
+                {% for club in favorites %}
+                    <div class="card">
+                        <div class="card-body">
+                            <h3 class="card-title">{{ club['club_name'] }}</h3>
+                            <p><strong>Address:</strong> {{ club['address'] }}</p>
+                            <p><strong>Rating:</strong> {{ club['rating'] }}</p>
+                            <p><strong>Phone:</strong> {{ club['phone'] }}</p>
+                            <a href="{{ club['website'] }}" target="_blank">Visit Website</a>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <p>You haven't added any favorite clubs yet. Go back to the <a href="/home">home page</a> to find some!</p>
+        {% endif %}
+    </div>
+</body>
+</html>
