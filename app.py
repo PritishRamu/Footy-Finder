@@ -20,7 +20,7 @@ load_dotenv()
 
 app = Flask(__name__)
 app.config['SECRET_KEY']=os.environ.get('SECRET_KEY')
-app.secret_key = os.getenv("FLASK_SECRET_KEY")
+# app.secret_key = os.getenv("FLASK_SECRET_KEY")
 GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")
 GEOCODING_API_KEY = os.getenv("GEOCODING_API_KEY")
 DEFAULT_LAT_LNG = (51.5074, -0.1278)  # London
